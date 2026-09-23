@@ -5,11 +5,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "mastra dev",
+    "dev": "concurrently -k -n mastra,web -c green,cyan \"npm:dev:mastra\" \"npm:dev:web\"",
+    "dev:mastra": "mastra dev",
+    "dev:web": "wait-on -t 120000 http-get://localhost:4111/api/workflows && npm run dev -w web",
     "build": "mastra build",
+    "build:web": "npm run build -w web",
     "start": "mastra start",
     "seed": "tsx --env-file=.env scripts/seed-dataset.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && npm run typecheck -w web"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -25,6 +28,11 @@
     "@types/node": "^24.0.0",
     "mastra": "1.30.0",
     "tsx": "^4.23.15",
-    "typescript": "^6.0.3"
-  }
+    "typescript": "^6.0.3",
+    "concurrently": "^10.0.5",
+    "wait-on": "^9.1.0"
+  },
+  "workspaces": [
+    "web"
+  ]
 }

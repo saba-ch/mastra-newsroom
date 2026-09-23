@@ -1,0 +1,152 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Tokens lifted from Mastra Studio's bundled stylesheet (node_modules/mastra/dist/studio/assets/style-*.css).
+   Dark by default, like Studio; light follows the OS. */
+
+:root {
+  color-scheme: dark;
+  --surface1: #000000;
+  --surface2: #0d0d0d;
+  --surface3: #121212;
+  --surface4: #1a1a1a;
+  --surface5: rgb(32 32 32 / 0.9);
+  --surface6: #303030;
+  --border1: rgb(255 255 255 / 0.07);
+  --border2: rgb(255 255 255 / 0.11);
+  --overlay-soft: rgb(255 255 255 / 0.04);
+  --neutral1: #404040;
+  --neutral2: #727272;
+  --neutral3: #a0a0a0;
+  --neutral4: #d4d4d4;
+  --neutral5: #e4e4e4;
+  --neutral6: #fafafa;
+  --accent1: #00c950;
+  --accent2: #fb2c36;
+  --accent3: #2b7fff;
+  --accent6: #fe9a00;
+  --accent1-dark: #0a2613;
+  --accent2-dark: #2b1110;
+  --accent3-dark: #0f1d36;
+  --accent6-dark: #261a0c;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --surface1: #f0f0f0;
+    --surface2: #fafafa;
+    --surface3: #ffffff;
+    --surface4: #f3f3f3;
+    --surface5: rgb(236 236 236 / 0.94);
+    --surface6: #dcdcdc;
+    --border1: rgb(24 24 24 / 0.1);
+    --border2: rgb(24 24 24 / 0.16);
+    --overlay-soft: rgb(24 24 24 / 0.04);
+    --neutral1: #737373;
+    --neutral2: #545454;
+    --neutral3: #404040;
+    --neutral4: #292929;
+    --neutral5: #181818;
+    --neutral6: #070707;
+    --accent1: #00a63e;
+    --accent2: #e7000b;
+    --accent3: #155dfc;
+    --accent6: #e17100;
+    --accent1-dark: #dcfce7;
+    --accent2-dark: #fde8e8;
+    --accent3-dark: #e3ecfd;
+    --accent6-dark: #fef6d8;
+  }
+}
+
+@theme inline {
+  --font-sans: var(--font-mona), system-ui, ui-sans-serif, sans-serif;
+  --font-mono: var(--font-commit), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-surface1: var(--surface1);
+  --color-surface2: var(--surface2);
+  --color-surface3: var(--surface3);
+  --color-surface4: var(--surface4);
+  --color-surface5: var(--surface5);
+  --color-surface6: var(--surface6);
+  --color-border1: var(--border1);
+  --color-border2: var(--border2);
+  --color-overlay-soft: var(--overlay-soft);
+  --color-neutral1: var(--neutral1);
+  --color-neutral2: var(--neutral2);
+  --color-neutral3: var(--neutral3);
+  --color-neutral4: var(--neutral4);
+  --color-neutral5: var(--neutral5);
+  --color-neutral6: var(--neutral6);
+  --color-accent1: var(--accent1);
+  --color-accent2: var(--accent2);
+  --color-accent3: var(--accent3);
+  --color-accent6: var(--accent6);
+  --color-accent1-dark: var(--accent1-dark);
+  --color-accent2-dark: var(--accent2-dark);
+  --color-accent3-dark: var(--accent3-dark);
+  --color-accent6-dark: var(--accent6-dark);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --text-ui-xs: 0.625rem;
+  --text-ui-xs--line-height: 1.6;
+  --text-ui-sm: 0.75rem;
+  --text-ui-sm--line-height: 1.5;
+  --text-ui-smd: 0.8125rem;
+  --text-ui-smd--line-height: 1.5;
+  --text-ui-md: 0.875rem;
+  --text-ui-md--line-height: 1.43;
+  --text-ui-lg: 1rem;
+  --text-ui-lg--line-height: 1.5;
+  --text-header-lg: 1.125rem;
+  --text-header-xl: 1.375rem;
+
+  --ease-out-custom: cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+@layer base {
+  html {
+    font-feature-settings: "ss06" on;
+  }
+  body {
+    @apply bg-surface1 font-sans text-neutral6 antialiased;
+  }
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border1);
+  }
+  /* Tailwind v4 dropped the pointer cursor on buttons; Studio keeps it. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* Report prose mapped onto the Studio palette. */
+.prose-mastra {
+  --tw-prose-body: var(--neutral4);
+  --tw-prose-headings: var(--neutral6);
+  --tw-prose-bold: var(--neutral6);
+  --tw-prose-links: var(--neutral6);
+  --tw-prose-bullets: var(--neutral2);
+  --tw-prose-counters: var(--neutral2);
+  --tw-prose-hr: var(--border1);
+  --tw-prose-quotes: var(--neutral3);
+  --tw-prose-quote-borders: var(--border2);
+  --tw-prose-code: var(--neutral5);
+  --tw-prose-pre-bg: var(--surface3);
+  --tw-prose-pre-code: var(--neutral5);
+  --tw-prose-th-borders: var(--border2);
+  --tw-prose-td-borders: var(--border1);
+}

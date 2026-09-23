@@ -8,8 +8,10 @@ Daily News Reporter built on Mastra primitives. Give it a topic and a date and i
 npm install
 cp .env.example .env    # OPENAI_API_KEY and EXA_API_KEY
 npm run seed            # creates the "Daily topics" dataset, once
-npm run dev             # Studio at http://localhost:4111
+npm run dev             # Studio at http://localhost:4111, web UI at http://localhost:3000
 ```
+
+`npm run dev:mastra` starts Studio alone; `npm run dev:web` starts only the web UI against an already running `mastra dev`.
 
 `npm run seed` goes through the Mastra SDK (`mastra.datasets.create`). Set `DATABASE_URL` in `.env` to an absolute `file:` path so the script and `mastra dev` open the same SQLite file; `mastra dev` resolves a relative path under `src/mastra/public/`.
 
@@ -22,6 +24,17 @@ A story run takes 85-105 s and costs about $0.05-0.10 on `openai/gpt-6-luna`.
 - **Scorers**: the three scorers run live on the `write` step of every story run and show up here per run.
 - **Datasets → Daily topics → Run experiment**: target the `newsReport` workflow, pick all three scorers. Five items took about 3 minutes.
 - **Observability**: agent calls, tool calls and workflow spans for every run.
+
+## Web UI
+
+`web/` is a small Next.js app (npm workspace) on top of the same Mastra server, styled with Studio's own tokens and fonts. It has no database of its own: it talks to `mastra dev` through `@mastra/client-js`, so the runs it shows are the ones Studio shows.
+
+- **Run history**: `getWorkflow("newsReport").runs()`. That endpoint returns every run's full snapshot, so `web/app/api/runs` slims it to one line per run on the server.
+- **New run**: `createRun()`, then `run.stream({ inputData })`. Step events drive the timeline. Nested desk steps stream with dotted ids (`newsroom-desk.research`), and the research `foreach` emits per-angle progress.
+- **Refresh mid-run**: the page reattaches with `run.observe()`, which replays the run's cached events and then continues live. Closing the tab does not stop the run. If the event cache is gone (server restarted), it falls back to polling `runById` every 3s, as Studio does.
+- **Result**: `runById(runId, { fields: ["result", "error", "payload", "steps"] })`. Markdown is rendered with `react-markdown` + `remark-gfm`, and sources are shown as cards numbered like the `[n]` citations. Failed runs show the stored error; `invalid-topic` and `no-coverage` show the planner's or workflow's message.
+
+Set `NEXT_PUBLIC_MASTRA_URL` in `web/.env` if Mastra is not on `http://localhost:4111`.
 
 ## Who does what
 
