@@ -156,8 +156,10 @@ const write = createStep({
       `=== ${story.decision.toUpperCase()}${i === 0 ? " (LEAD)" : ""}: ${story.headline} — ${new Set(story.articles.map((a) => a.outlet)).size} outlet(s) ===`,
       ...story.articles.map((a) => `[${number.get(a.id)}] id=${a.id} | ${a.outlet} | ${a.title}\n    ${a.highlights.join(" … ")}`),
     ].join("\n")).join("\n\n");
+    const longDate = new Date(date).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+    const dateline = `**${topic} desk · ${longDate}**`;
     const response = await mastra.getAgent("reporter").generate(
-      `Desk date: ${date}. Topic: "${topic}".\n\nLineup in running order:\n\n${prompt}`,
+      `Desk date: ${date}. Topic: "${topic}".\nDateline (print as the second line, exactly): ${dateline}\n\nLineup in running order:\n\n${prompt}`,
       {
         requestContext: new RequestContext([["articles", Object.fromEntries(sources.map((a) => [a.id, a]))]]),
         maxSteps: REPORTER_MAX_STEPS,

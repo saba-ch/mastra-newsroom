@@ -62,7 +62,7 @@ Every route returns the same shape (`outputSchema` in `src/mastra/types.ts`):
 { topic, date, status: 'ok' | 'invalid-topic' | 'no-coverage', report, sources, lineup, research }
 ```
 
-`report` is standalone markdown: headline, "As of" date, one paragraph per covered story, "In brief", "What to watch", then `## Sources`. Citations are `[n](url)` links into that list. `lineup` and `research` are the story data the scorers read.
+`report` is standalone markdown in daily-brief form (rules drawn from Axios Smart Brevity, Semafor Flagship and The Economist Espresso): a headline, a bold dateline built by code (`Nvidia desk · Wednesday, September 23, 2026`), a "Today in one line" summary, then one numbered `##` section per covered story with a bold opening fact and up to three fixed labels (Why it matters, By the numbers, What's next). Briefs follow as labelled bullets under "In brief", then "What to watch" and `## Sources`. Story 1 gets 80-120 words, the rest 50-80, the whole brief under 700. Citations are `[n](url)` links into the Sources list. `lineup` and `research` are the story data the scorers read.
 
 ## Scorers
 

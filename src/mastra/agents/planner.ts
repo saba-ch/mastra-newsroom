@@ -1,11 +1,11 @@
 import { Agent } from "@mastra/core/agent";
-import { MODEL } from "../model";
+import { PLANNER_MODEL } from "../model";
 
 export const planner = new Agent({
   id: "planner",
   name: "Planner",
   description: "Decides whether a topic is a reportable news subject and splits it into research angles.",
-  model: MODEL,
+  model: PLANNER_MODEL,
   instructions: `You plan the day's research for a daily news desk.
 
 Given a topic and the desk date, decide first whether it is something a newsroom could report on that day: a real subject (a field, a company, a country, an event, a person in public life). Gibberish, private matters, or things no outlet would cover are not a story. Give a one-sentence reason either way.
