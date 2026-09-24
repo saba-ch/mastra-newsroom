@@ -2,7 +2,7 @@ import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { RequestContext } from "@mastra/core/request-context";
 import type { MastraScorers } from "@mastra/core/evals";
 import { z } from "zod";
-import { angleSchema, deskSchema, inputSchema, lineupSchema, outputSchema, planSchema, researchSchema, type Article, type Input, type Output, type Plan } from "../types";
+import { angleSchema, deskSchema, inputSchema, lineupSchema, outputSchema, planSchema, researchSchema, type Article, type Input, type Output } from "../types";
 import { citationFidelityScorer } from "../scorers/citation-fidelity";
 import { researchRedundancyScorer } from "../scorers/research-redundancy";
 import { coverageScorer } from "../scorers/coverage";
@@ -36,6 +36,7 @@ const verdictSchema = z.object({
   answers: z.object({ isStory: z.object({ type: z.literal("boolean"), probability: z.number() }) }),
   usage: z.object({ inputTokens: z.number().optional(), outputTokens: z.number().optional(), totalTokens: z.number() }),
 });
+type Verdict = z.infer<typeof verdictSchema>;
 
 const plan = createStep({
   id: "plan",
@@ -99,7 +100,7 @@ const edit = createStep({
   stateSchema: deskStateSchema,
   execute: async ({ inputData, mastra, getInitData, setState }) => {
     await setState({ research: inputData });
-    const { topic, date } = getInitData<Plan>();
+    const { topic, date } = getInitData<Verdict>();
     const stories = inputData.flatMap((r) =>
       r.stories.map((story) => [
         `[${story.id}] ${story.headline}`,
@@ -158,7 +159,7 @@ const write = createStep({
   stateSchema: deskStateSchema,
   scorers: reportScorers,
   execute: async ({ inputData: lineup, mastra, getInitData, state: { research } }): Promise<Output> => {
-    const { topic, date } = getInitData<Plan>();
+    const { topic, date } = getInitData<Verdict>();
     const sources = [...new Map(lineup.flatMap((s) => s.articles).map((a) => [a.id, a])).values()];
     const number = new Map(sources.map((a, i) => [a.id, i + 1]));
     const prompt = lineup.map((story, i) => [
@@ -190,7 +191,7 @@ const noCoverage = createStep({
   outputSchema,
   stateSchema: deskStateSchema,
   execute: async ({ inputData: lineup, getInitData, state: { research } }): Promise<Output> => {
-    const { topic, date } = getInitData<Plan>();
+    const { topic, date } = getInitData<Verdict>();
     return { topic, date, status: "no-coverage", report: `No on-topic coverage found on ${date} for "${topic}".`, sources: [], lineup, research };
   },
 });
@@ -205,15 +206,16 @@ const mergeDesk = createStep({
   execute: async ({ inputData }) => outputSchema.parse(inputData[write.id] ?? inputData[noCoverage.id]),
 });
 
-// ---- the desk: Plan -> Output, one researcher per angle ---------------------
+// ---- the desk: verdict -> Output, one researcher per angle ---------------------
 
 export const newsroomDesk = createWorkflow({
   id: "newsroom-desk",
-  description: "Research every angle in parallel, edit into a lineup, write the report.",
-  inputSchema: planSchema,
+  description: "Plan the angles, research each in parallel, edit into a lineup, write the report.",
+  inputSchema: verdictSchema,
   outputSchema,
   stateSchema: deskStateSchema,
 })
+  .then(plan)
   .map(async ({ inputData: { topic, date, angles } }) => angles.map((angle, angleIndex) => ({ topic, date, angle, angleIndex })))
   .foreach(research, { concurrency: RESEARCH_CONCURRENCY })
   .then(edit)
@@ -241,26 +243,14 @@ const abstain = createStep({
   },
 });
 
-// ---- planAndReport: Plan the angles, then run the desk ----------------------
-
-const planAndReport = createWorkflow({
-  id: "plan-and-report",
-  description: "Planner splits the accepted topic into angles, then the desk researches and writes.",
-  inputSchema: verdictSchema,
-  outputSchema,
-})
-  .then(plan)
-  .then(newsroomDesk)
-  .commit();
-
 // ---- merge: whichever arm ran (branch output is keyed by step id) -----------
 
 const merge = createStep({
   id: "merge",
   description: "Pass through whichever arm produced the report.",
-  inputSchema: z.object({ [planAndReport.id]: outputSchema.optional(), [abstain.id]: outputSchema.optional() }),
+  inputSchema: z.object({ [newsroomDesk.id]: outputSchema.optional(), [abstain.id]: outputSchema.optional() }),
   outputSchema,
-  execute: async ({ inputData }) => outputSchema.parse(inputData[planAndReport.id] ?? inputData[abstain.id]),
+  execute: async ({ inputData }) => outputSchema.parse(inputData[newsroomDesk.id] ?? inputData[abstain.id]),
 });
 
 
@@ -280,7 +270,7 @@ export const newsReport = createWorkflow({
   })
   .branch(
     [
-      [{ predicate: { op: "gte", left: { path: "inputData.answers.isStory.probability" }, right: { literal: STORY_THRESHOLD } } }, planAndReport],
+      [{ predicate: { op: "gte", left: { path: "inputData.answers.isStory.probability" }, right: { literal: STORY_THRESHOLD } } }, newsroomDesk],
       [{ predicate: { op: "lt", left: { path: "inputData.answers.isStory.probability" }, right: { literal: STORY_THRESHOLD } } }, abstain],
     ],
     { id: "is-it-a-story", description: "Research it, or abstain." },

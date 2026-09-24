@@ -54,11 +54,10 @@ You can inspect every step's input, output and state, including the steps inside
 ```mermaid
 flowchart TD
     A([topic, date]) --> isstory[is-story · Jev]
-    isstory -->|P(story) ≥ 0.5| plan
+    isstory -->|P(story) ≥ 0.5| desk
     isstory -->|P(story) < 0.5| abstain
-    plan --> desk
     subgraph desk [newsroom-desk]
-        research["research ×N angles<br/>(parallel foreach)"] --> edit
+        plan --> research["research ×N angles<br/>(parallel foreach)"] --> edit
         edit -->|lineup not empty| write
         edit -->|lineup empty| nocov[no-coverage]
     end
