@@ -14,7 +14,7 @@ A small newsroom of five agents runs inside one Mastra workflow. A planner split
 
 1. **Install dependencies**: `npm install`
 2. **Add your API keys**: `cp .env.example .env`, then fill in `OPENAI_API_KEY` and `EXA_API_KEY`.
-3. **Seed the datasets**: `npm run seed` creates `routing` and `launch-days`. Run it while the dev server is stopped, because both open the same database. Reseeding replaces the datasets and their past experiments.
+3. **Seed the datasets**: `npm run seed` creates `routing` and `launch-days`. Run it while the dev server is stopped, because both open the same database. Items carry an `externalId` (`topic|date`), so rerunning it skips stored items and adds new ones as a new dataset version; past experiments stay pinned to the version they ran on. Changing a stored item's ground truth in the script fails with an identity conflict: edit it in Studio instead.
 4. **Start the dev server**: `npm run dev` starts Studio at [localhost:4111](http://localhost:4111) and the web UI at [localhost:3000](http://localhost:3000).
 
    To start one of them alone, use `npm run dev:mastra` (Studio) or `npm run dev:web` (the web UI, which waits for a running `mastra dev`).
@@ -231,7 +231,7 @@ src/mastra/
   scorers/          citation-fidelity, research-redundancy, coverage, status, brief-correctness
   routes/           run-summaries (custom API route for the web UI)
 scripts/
-  seed-dataset.ts   creates the routing and launch-days datasets
+  seed-dataset.ts   creates the routing and launch-days datasets, adds new items
 web/                Next.js UI
 ```
 

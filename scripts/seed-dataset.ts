@@ -95,9 +95,17 @@ const datasets = [
   },
 ];
 
+// Items carry an externalId (topic|date), so rerunning skips items already stored and adds new ones as one new
+// dataset version; past experiments stay pinned to the version they ran on. Re-adding an externalId with different
+// ground truth fails with a conflict: edit or delete that item in Studio instead, which also makes a new version.
+const { datasets: existing } = await mastra.datasets.list();
 for (const { items, ...config } of datasets) {
-  await mastra.datasets.delete({ id: config.id }); // reseeding replaces the dataset and its past experiments
-  const dataset = await mastra.datasets.create({ ...config, targetType: "workflow", targetIds: ["newsReport"] });
-  await dataset.addItems({ items });
-  console.log(`Dataset "${dataset.id}" seeded with ${items.length} items, scorers: ${config.scorerIds.join(", ")}.`);
+  const settings = { ...config, targetType: "workflow" as const, targetIds: ["newsReport"] };
+  const dataset = existing.some((d) => d.id === config.id)
+    ? await mastra.datasets.get({ id: config.id })
+    : await mastra.datasets.create(settings);
+  await dataset.update(settings); // settings are not versioned
+  await dataset.addItems({ items: items.map((item) => ({ ...item, externalId: `${item.input.topic}|${item.input.date}` })) });
+  const { version } = await dataset.getDetails();
+  console.log(`Dataset "${dataset.id}" at v${version}, ${items.length} items, scorers: ${config.scorerIds.join(", ")}.`);
 }
