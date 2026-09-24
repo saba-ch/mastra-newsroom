@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plus } from "lucide-react";
 import { ACTIVE, NO_REPORT } from "@/lib/run-state";
-import type { RunSummary } from "@/lib/run-summary";
+import type { RunSummary } from "../../src/mastra/routes/run-summaries";
 import { timeAgo } from "@/lib/time";
 import { useRuns } from "./runs-context";
 import { Dot, StatusIcon } from "./ui";

@@ -7,7 +7,7 @@ Daily News Reporter built on Mastra primitives. Give it a topic and a date and i
 ```bash
 npm install
 cp .env.example .env    # OPENAI_API_KEY and EXA_API_KEY
-npm run seed            # creates the "Daily topics" dataset, once
+npm run seed            # creates the "routing" and "launch-days" datasets (reseeding replaces them)
 npm run dev             # Studio at http://localhost:4111, web UI at http://localhost:3000
 ```
 
@@ -21,15 +21,15 @@ A story run takes 85-105 s and costs about $0.05-0.10 on `openai/gpt-6-luna`.
 
 - **Agents → Editor-in-chief**: chat, e.g. "what's happening with AI regulation?". It runs the `news-report` workflow as a tool and relays the report. The other four agents can be chatted with directly too.
 - **Workflows → news-report**: run with `{ "topic": "AI regulation" }` (optional `"date": "YYYY-MM-DD"`). Every step's input, output and state is inspectable, including inside the nested `newsroom-desk`.
-- **Scorers**: the three scorers run live on the `write` step of every story run and show up here per run.
-- **Datasets → Daily topics → Run experiment**: target the `newsReport` workflow, pick all three scorers. Five items took about 3 minutes.
+- **Scorers**: three scorers run live on the `write` step of every story run and show up here per run.
+- **Datasets → Launch days / Routing → Run experiment**: target the `newsReport` workflow. Each dataset carries its own scorer list.
 - **Observability**: agent calls, tool calls and workflow spans for every run.
 
 ## Web UI
 
 `web/` is a small Next.js app (npm workspace) on top of the same Mastra server, styled with Studio's own tokens and fonts. It has no database of its own: it talks to `mastra dev` through `@mastra/client-js`, so the runs it shows are the ones Studio shows.
 
-- **Run history**: `getWorkflow("newsReport").runs()`. That endpoint returns every run's full snapshot, so `web/app/api/runs` slims it to one line per run on the server.
+- **Run history**: `GET /newsroom/runs`, a custom Mastra route (`src/mastra/routes/run-summaries.ts`). Mastra's own run list returns every run's full snapshot, so this route slims it to one line per run before it leaves the server.
 - **New run**: `createRun()`, then `run.stream({ inputData })`. Step events drive the timeline. Nested desk steps stream with dotted ids (`newsroom-desk.research`), and the research `foreach` emits per-angle progress.
 - **Refresh mid-run**: the page reattaches with `run.observe()`, which replays the run's cached events and then continues live. Closing the tab does not stop the run. If the event cache is gone (server restarted), it falls back to polling `runById` every 3s, as Studio does.
 - **Result**: `runById(runId, { fields: ["result", "error", "payload", "steps"] })`. Markdown is rendered with `react-markdown` + `remark-gfm`, and sources are shown as cards numbered like the `[n]` citations. Failed runs show the stored error; `invalid-topic` and `no-coverage` show the planner's or workflow's message.
@@ -79,7 +79,9 @@ Every route returns the same shape (`outputSchema` in `src/mastra/types.ts`):
 
 ## Scorers
 
-Three code scorers, typed `createScorer<unknown, Output>`. They read only the workflow Output, so the same scorer runs live on `write` and on the final result in experiments. All are registered on the Mastra instance so experiments can pick them by id.
+All scorers are typed `createScorer<unknown, Output>` and registered on the Mastra instance so datasets and experiments can name them by id. Which scorer runs where follows one rule: if the output alone can answer its question, it runs live on `write` for every story run; if it needs an answer key (`groundTruth`), it runs only in experiments on a dataset whose items carry that key.
+
+Live, on every story run:
 
 | Scorer | Reads | Score | Baseline |
 |---|---|---|---|
@@ -87,9 +89,23 @@ Three code scorers, typed `createScorer<unknown, Output>`. They read only the wo
 | `research-redundancy` | `lineup[].storyIds` | 1 minus the share of lineup stories found by more than one angle. Story ids are `a<angle>-s<n>`, so the prefix gives the angle. Judges the planner's split. | 0.6-0.89 on real topics |
 | `coverage` | `research`, `lineup` | Share of researcher stories with 2+ outlets that made the lineup. Dropping a multi-outlet story is a miss. | 0.91-1.0 |
 
-## Dataset
+Experiments only, against ground truth:
 
-"Daily topics" (`id: daily-topics`, `targetType: workflow`, `targetIds: ["newsReport"]`), 20 items: 14 real beats (broad ones like AI regulation and narrow ones like SpaceX, expected `ok`), 3 real subjects with no news that day (`no-coverage`), 3 non-subjects (`invalid-topic`). `groundTruth.expectedStatus` documents the expected route; no scorer reads it yet.
+| Scorer | Reads | Score |
+|---|---|---|
+| `status` | `status`, `groundTruth.expectedStatus` | 1 if the run took the expected route, else 0. Code. |
+| `brief-correctness` | `report` body, `groundTruth.must` / `mustNot` | LLM judge (`openai/gpt-6-luna`), the pattern from Mastra's eval-loop guide. 1 if every `must` sentence holds and no `mustNot` does, judged on meaning rather than wording. |
+
+## Datasets
+
+One dataset per question under test. `startExperiment` always runs every item, so a dataset is also the unit you choose to run. Every item in a dataset has the same `groundTruth` shape, and the dataset carries its scorer list (`scorerIds`), so every scorer applies to every item. Both target the `newsReport` workflow.
+
+| Dataset | Question | Items | groundTruth | Scorers |
+|---|---|---|---|---|
+| `routing` | Does each topic take the right route? | 8: 2 busy beats (`ok`), 3 real subjects with no news (`no-coverage`), 3 non-subjects (`invalid-topic`). Non-subjects stop at the planner, so it is cheap. | `{ expectedStatus }` | `status` |
+| `launch-days` | On a day with a known big story, does the brief carry it? | 5 broad topics on launch days: `phone` on 2026-09-09 (iPhone Duo), `new AI models` on 09-16 (TypeSafe's Jev) and 09-03 (GPT-6 Astra), `smart glasses` on 09-24 (Meta Connect), `Android` on 09-01 (September Android Drop). | `{ must, mustNot }` | `brief-correctness` + the three live scorers |
+
+Launch-day dates are the UTC day most coverage is published, checked against Exa: a US afternoon or evening announcement (Meta's 4pm PT keynote, TypeSafe's Sep 15 launch) is dated the next day. The broad topics are deliberate: `new AI models` on Jev's day does not surface Jev in the top ten search results, so the planner has to find it.
 
 ## Design notes
 
@@ -105,12 +121,13 @@ Three code scorers, typed `createScorer<unknown, Output>`. They read only the wo
 
 ## Known limitations
 
+- No auth: this is a local demo bound to localhost.
 - The date defaults to today in UTC. Early in the UTC day there is little news yet.
 - Relevance and grouping are model judgement from titles and highlights. The "no-coverage" dataset item can turn `ok` if Exa returns something loosely related.
 - Citation fidelity checks that a link points at a fetched source, not that the source supports the sentence.
 - Research redundancy is still 0.6-0.89 on broad topics: the planner's angles overlap.
-- The seed script creates a fixed dataset id; run it once per database.
-- `groundTruth.expectedStatus` is documentation only.
+- Reseeding deletes and recreates both datasets, including their past experiments.
+- `launch-days` has one hand-labelled answer key per item. Dates nobody labelled get no recall check; the live scorers only check citations and internal consistency.
 
 ## Roadmap
 

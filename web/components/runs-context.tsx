@@ -2,9 +2,10 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { POLL_MS } from "@/lib/run-state";
-import type { RunSummary } from "@/lib/run-summary";
+import { MASTRA_URL } from "@/lib/mastra";
+import type { RunSummary } from "../../src/mastra/routes/run-summaries";
 
-// Run history for the sidebar, from Mastra's run storage via /api/runs. Pages call refresh() on start/finish.
+// Run history for the sidebar, from the Mastra server's slim /newsroom/runs route. Pages call refresh() on start/finish.
 // While runs are going, poll only the running ones (small) and refetch the full list when that set changes.
 
 interface RunsValue {
@@ -16,7 +17,7 @@ interface RunsValue {
 const RunsContext = createContext<RunsValue | null>(null);
 
 async function fetchRuns(query = ""): Promise<RunSummary[]> {
-  const res = await fetch(`/api/runs${query}`, { cache: "no-store" });
+  const res = await fetch(`${MASTRA_URL}/newsroom/runs${query}`, { cache: "no-store" });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? res.statusText);
   return body.runs;
