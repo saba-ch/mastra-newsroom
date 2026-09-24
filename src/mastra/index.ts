@@ -1,4 +1,6 @@
 import { Mastra } from "@mastra/core";
+import { MastraCompositeStore } from "@mastra/core/storage";
+import { DuckDBStore } from "@mastra/duckdb";
 import { LibSQLStore } from "@mastra/libsql";
 import { MastraStorageExporter, Observability } from "@mastra/observability";
 import { editorInChief } from "./agents/editor-in-chief";
@@ -22,9 +24,14 @@ export const mastra = new Mastra({
   workflows: { newsReport, newsroomDesk },
   // statusScorer and briefCorrectnessScorer need ground truth: registered for experiments, never attached to a step.
   scorers: { citationFidelityScorer, researchRedundancyScorer, coverageScorer, statusScorer, briefCorrectnessScorer },
-  // One SQLite file for datasets, runs, scores and traces. Relative to the process cwd: `mastra dev` runs the
-  // server from src/mastra/public, so that is where the file lives, and `npm run seed` runs from there too.
-  storage: new LibSQLStore({ id: "libsql", url: "file:./mastra.db" }),
+  // SQLite for datasets, runs and scores; traces go to DuckDB because Studio's trace list uses advanced trace
+  // queries, which LibSQL doesn't implement. Paths are relative to the process cwd: `mastra dev` runs the server
+  // from src/mastra/public, so that is where the files live, and `npm run seed` runs from there too.
+  storage: new MastraCompositeStore({
+    id: "composite",
+    default: new LibSQLStore({ id: "libsql", url: "file:./mastra.db" }),
+    domains: { observability: new DuckDBStore({ path: "./mastra.duckdb" }).observability },
+  }),
   observability: new Observability({
     configs: { default: { serviceName: "mastra-newsroom", exporters: [new MastraStorageExporter()] } },
   }),

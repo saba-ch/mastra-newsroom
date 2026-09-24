@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@mastra/core": "^1.69.0",
+    "@mastra/duckdb": "^1.10.0",
     "@mastra/libsql": "^1.23.1",
     "@mastra/observability": "^1.18.0",
     "exa-js": "^2.19.0",
