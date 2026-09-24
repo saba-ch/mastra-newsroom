@@ -18,6 +18,7 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
+    "@ai-sdk/typesafe-ai": "^3.0.6",
     "@mastra/core": "^1.69.0",
     "@mastra/duckdb": "^1.10.0",
     "@mastra/libsql": "^1.23.1",

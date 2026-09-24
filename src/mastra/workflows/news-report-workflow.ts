@@ -2,12 +2,15 @@ import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { RequestContext } from "@mastra/core/request-context";
 import type { MastraScorers } from "@mastra/core/evals";
 import { z } from "zod";
-import { angleSchema, deskSchema, inputSchema, lineupSchema, outputSchema, planSchema, researchSchema, type Article, type Output, type Plan } from "../types";
+import { angleSchema, deskSchema, inputSchema, lineupSchema, outputSchema, planSchema, researchSchema, type Article, type Input, type Output } from "../types";
 import { citationFidelityScorer } from "../scorers/citation-fidelity";
 import { researchRedundancyScorer } from "../scorers/research-redundancy";
 import { coverageScorer } from "../scorers/coverage";
+import { isStory } from "../classifier/is-story";
 
 const MAX_ANGLES = 5;
+// Jev returns P(story). At or above this the desk runs; below it the run abstains.
+const STORY_THRESHOLD = 0.5;
 const RESEARCH_CONCURRENCY = MAX_ANGLES;
 const RESEARCH_MAX_STEPS = 6;
 const REPORTER_MAX_STEPS = 8;
@@ -23,20 +26,29 @@ const reportScorers: MastraScorers = {
   coverage: { scorer: coverageScorer },
 };
 
-// ---- plan: Input -> Plan ----------------------------------------------------
+// ---- plan: classifier verdict -> Plan --------------------------------------
+
+// What the is-story classifier step emits (mirroring Mastra's ClassifierStepOutput), plus the topic and date the
+// map after it attaches. Both arms of the first branch receive this.
+const verdictSchema = z.object({
+  topic: z.string(),
+  date: z.string(),
+  answers: z.object({ isStory: z.object({ type: z.literal("boolean"), probability: z.number() }) }),
+  usage: z.object({ inputTokens: z.number().optional(), outputTokens: z.number().optional(), totalTokens: z.number() }),
+});
+type Verdict = z.infer<typeof verdictSchema>;
 
 const plan = createStep({
   id: "plan",
-  description: "Planner decides if the topic is a story and splits it into research angles.",
-  inputSchema,
+  description: "Jev accepted the topic; the planner splits it into research angles.",
+  inputSchema: verdictSchema,
   outputSchema: planSchema,
-  execute: async ({ inputData, mastra }) => {
-    const date = inputData.date ?? new Date().toISOString().slice(0, 10);
-    const response = await mastra.getAgent("planner").generate(`Desk date: ${date}.\nTopic: "${inputData.topic}".`, {
-      structuredOutput: { schema: planSchema.pick({ isStory: true, reason: true, angles: true }) },
+  execute: async ({ inputData: { topic, date, answers }, mastra }) => {
+    const response = await mastra.getAgent("planner").generate(`Desk date: ${date}.\nTopic: "${topic}".`, {
+      structuredOutput: { schema: planSchema.pick({ angles: true }) },
     });
-    const { isStory, reason, angles } = response.object;
-    return { topic: inputData.topic, date, isStory: isStory && angles.length > 0, reason, angles: angles.slice(0, MAX_ANGLES) };
+    const angles = response.object.angles.slice(0, MAX_ANGLES);
+    return { topic, date, isStory: angles.length > 0, reason: `Jev: story (p=${answers.isStory.probability.toFixed(2)}).`, angles };
   },
 });
 
@@ -88,7 +100,7 @@ const edit = createStep({
   stateSchema: deskStateSchema,
   execute: async ({ inputData, mastra, getInitData, setState }) => {
     await setState({ research: inputData });
-    const { topic, date } = getInitData<Plan>();
+    const { topic, date } = getInitData<Verdict>();
     const stories = inputData.flatMap((r) =>
       r.stories.map((story) => [
         `[${story.id}] ${story.headline}`,
@@ -147,7 +159,7 @@ const write = createStep({
   stateSchema: deskStateSchema,
   scorers: reportScorers,
   execute: async ({ inputData: lineup, mastra, getInitData, state: { research } }): Promise<Output> => {
-    const { topic, date } = getInitData<Plan>();
+    const { topic, date } = getInitData<Verdict>();
     const sources = [...new Map(lineup.flatMap((s) => s.articles).map((a) => [a.id, a])).values()];
     const number = new Map(sources.map((a, i) => [a.id, i + 1]));
     const prompt = lineup.map((story, i) => [
@@ -179,7 +191,7 @@ const noCoverage = createStep({
   outputSchema,
   stateSchema: deskStateSchema,
   execute: async ({ inputData: lineup, getInitData, state: { research } }): Promise<Output> => {
-    const { topic, date } = getInitData<Plan>();
+    const { topic, date } = getInitData<Verdict>();
     return { topic, date, status: "no-coverage", report: `No on-topic coverage found on ${date} for "${topic}".`, sources: [], lineup, research };
   },
 });
@@ -194,15 +206,16 @@ const mergeDesk = createStep({
   execute: async ({ inputData }) => outputSchema.parse(inputData[write.id] ?? inputData[noCoverage.id]),
 });
 
-// ---- the desk: Plan -> Output, one researcher per angle ---------------------
+// ---- the desk: verdict -> Output, one researcher per angle ---------------------
 
 export const newsroomDesk = createWorkflow({
   id: "newsroom-desk",
-  description: "Research every angle in parallel, edit into a lineup, write the report.",
-  inputSchema: planSchema,
+  description: "Plan the angles, research each in parallel, edit into a lineup, write the report.",
+  inputSchema: verdictSchema,
   outputSchema,
   stateSchema: deskStateSchema,
 })
+  .then(plan)
   .map(async ({ inputData: { topic, date, angles } }) => angles.map((angle, angleIndex) => ({ topic, date, angle, angleIndex })))
   .foreach(research, { concurrency: RESEARCH_CONCURRENCY })
   .then(edit)
@@ -217,16 +230,17 @@ export const newsroomDesk = createWorkflow({
   .then(mergeDesk)
   .commit();
 
-// ---- abstain: Plan -> Output (invalid topic) --------------------------------
+// ---- abstain: classifier verdict -> Output (invalid topic) ------------------
 
 const abstain = createStep({
   id: "abstain",
-  description: "The planner said this is not a story; return without researching.",
-  inputSchema: planSchema,
+  description: "Jev said this is not a story; return without researching.",
+  inputSchema: verdictSchema,
   outputSchema,
-  execute: async ({ inputData: { topic, date, reason } }): Promise<Output> => ({
-    topic, date, status: "invalid-topic", report: reason, sources: [], lineup: [], research: [],
-  }),
+  execute: async ({ inputData: { topic, date, answers } }): Promise<Output> => {
+    const reason = `Jev: not a story (p=${answers.isStory.probability.toFixed(2)}). "${topic}" is not a subject a news desk could report on.`;
+    return { topic, date, status: "invalid-topic", report: reason, sources: [], lineup: [], research: [] };
+  },
 });
 
 // ---- merge: whichever arm ran (branch output is keyed by step id) -----------
@@ -239,17 +253,25 @@ const merge = createStep({
   execute: async ({ inputData }) => outputSchema.parse(inputData[newsroomDesk.id] ?? inputData[abstain.id]),
 });
 
+
 export const newsReport = createWorkflow({
   id: "news-report",
   description: "Topic + date -> the day's sourced news report.",
   inputSchema,
   outputSchema,
 })
-  .then(plan)
+  // Jev only sees what is mapped here: the topic alone. Whether there is news on the date is the desk's job.
+  .map(async ({ inputData }) => ({ topic: inputData.topic }))
+  .classifier(isStory)
+  // Carry the topic and date alongside the verdict: the story arm is a nested workflow, whose getInitData is its own input.
+  .map(async ({ inputData, getInitData }) => {
+    const { topic, date = new Date().toISOString().slice(0, 10) } = getInitData<Input>();
+    return { ...inputData, topic, date };
+  })
   .branch(
     [
-      [{ predicate: { op: "truthy", value: { path: "inputData.isStory" } } }, newsroomDesk],
-      [{ predicate: { op: "falsy", value: { path: "inputData.isStory" } } }, abstain],
+      [{ predicate: { op: "gte", left: { path: "inputData.answers.isStory.probability" }, right: { literal: STORY_THRESHOLD } } }, newsroomDesk],
+      [{ predicate: { op: "lt", left: { path: "inputData.answers.isStory.probability" }, right: { literal: STORY_THRESHOLD } } }, abstain],
     ],
     { id: "is-it-a-story", description: "Research it, or abstain." },
   )
