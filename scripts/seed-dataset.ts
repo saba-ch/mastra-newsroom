@@ -31,11 +31,12 @@ const routing: { input: Input; groundTruth: { expectedStatus: Output["status"] }
 // On a day with a known big story, does the brief carry it? Topics are deliberately broad:
 // the desk has to find the story, not be handed its name.
 // Dates are the UTC day most coverage is published: a US afternoon or evening launch lands on the next day.
-const launchDays: { input: Input; groundTruth: { must: string[]; mustNot: string[] } }[] = [
+const launchDays: { input: Input; groundTruth: { expectedStatus: Output["status"]; must: string[]; mustNot: string[] } }[] = [
   {
     // Apple event, 10am PT. Morning pieces the same day still say "expected to unveil".
     input: { topic: "phone", date: "2026-09-09" },
     groundTruth: {
+      expectedStatus: "ok",
       must: ["Leads with Apple unveiling the iPhone Duo, its first foldable iPhone"],
       mustNot: ["Describes the iPhone Duo as rumoured or not yet announced"],
     },
@@ -44,6 +45,7 @@ const launchDays: { input: Input; groundTruth: { must: string[]; mustNot: string
     // TypeSafe announced Sep 15 US time; the press wave is dated Sep 16 UTC. Competes with Gemini 3.8 Live and Salesforce Koa.
     input: { topic: "new AI models", date: "2026-09-16" },
     groundTruth: {
+      expectedStatus: "ok",
       must: ["Covers TypeSafe AI's launch of Jev, a model that returns typed decisions instead of text"],
       mustNot: [],
     },
@@ -52,6 +54,7 @@ const launchDays: { input: Input; groundTruth: { must: string[]; mustNot: string
     // Meta Connect keynote, 4pm PT Sep 23 = 23:00 UTC. Sep 23 is almost all meta.com posts; press lands on the 24th.
     input: { topic: "smart glasses", date: "2026-09-24" },
     groundTruth: {
+      expectedStatus: "ok",
       must: ["Leads with Meta's Connect 2026 announcements, such as the camera-free Ray-Ban Meta Audio glasses or the $1,299 Meta VR Glasses"],
       mustNot: ["Describes the Connect announcements as upcoming or expected"],
     },
@@ -59,6 +62,7 @@ const launchDays: { input: Input; groundTruth: { must: string[]; mustNot: string
   {
     input: { topic: "new AI models", date: "2026-09-03" },
     groundTruth: {
+      expectedStatus: "ok",
       must: ["Leads with OpenAI's launch of GPT-6 Astra"],
       mustNot: [],
     },
@@ -66,6 +70,7 @@ const launchDays: { input: Input; groundTruth: { must: string[]; mustNot: string
   {
     input: { topic: "Android", date: "2026-09-01" },
     groundTruth: {
+      expectedStatus: "ok",
       must: ["Covers Google's September Android Drop, such as Find Hub remembering where items are or on-screen motion-sickness cues"],
       mustNot: [],
     },
@@ -84,7 +89,8 @@ const datasets = [
     id: "launch-days",
     name: "Launch days",
     description: "Broad topics on days with a known big launch. groundTruth.must / mustNot say what the brief has to carry.",
-    scorerIds: ["brief-correctness", "citation-fidelity", "coverage", "research-redundancy"],
+    // The live scorers already run on `write` in every experiment run, so only ground-truth scorers go here.
+    scorerIds: ["brief-correctness", "status"],
     items: launchDays,
   },
 ];
