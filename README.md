@@ -2,18 +2,19 @@
 
 **Give it a topic and a date, get that day's sourced news brief.**
 
-A small newsroom of five agents runs inside one Mastra workflow. A planner splits the topic into angles, researchers search the day's news in parallel, an editor picks the stories, and a reporter writes a cited brief. Five scorers and two datasets grade the output. Every step is visible in Mastra Studio. The brief this project answers is in [task.md](task.md).
+A small newsroom of five agents runs inside one Mastra workflow. A Jev classifier decides whether the topic is a story, a planner splits it into angles, researchers search the day's news in parallel, an editor picks the stories, and a reporter writes a cited brief. Five scorers and two datasets grade the output. Every step is visible in Mastra Studio. The brief this project answers is in [task.md](task.md).
 
 ## Prerequisites
 
 - **Node.js 22.13 or later**
 - **[OpenAI API key](https://platform.openai.com/api-keys)**: set as `OPENAI_API_KEY`. It is used by all five agents and the `brief-correctness` judge.
 - **[Exa API key](https://dashboard.exa.ai/api-keys)**: set as `EXA_API_KEY`. It is used for news search and for reading articles.
+- **[TypeSafe API key](https://typesafe.ai)**: set as `JEV_API_KEY`. It is used by the `is-story` classifier, which runs on Jev.
 
 ## Quickstart 🚀
 
 1. **Install dependencies**: `npm install`
-2. **Add your API keys**: `cp .env.example .env`, then fill in `OPENAI_API_KEY` and `EXA_API_KEY`.
+2. **Add your API keys**: `cp .env.example .env`, then fill in `OPENAI_API_KEY`, `EXA_API_KEY` and `JEV_API_KEY`.
 3. **Seed the datasets**: `npm run seed` creates `routing` and `launch-days`. Run it while the dev server is stopped, because both open the same database. Items carry an `externalId` (`topic|date`), so rerunning it skips stored items and adds new ones as a new dataset version; past experiments stay pinned to the version they ran on. Changing a stored item's ground truth in the script fails with an identity conflict: edit it in Studio instead.
 4. **Start the dev server**: `npm run dev` starts Studio at [localhost:4111](http://localhost:4111) and the web UI at [localhost:3000](http://localhost:3000).
 
@@ -39,8 +40,8 @@ You can inspect every step's input, output and state, including the steps inside
 
 **3. Take the other two routes.**
 
-- `{ "topic": "my neighbour's dog" }`: the planner decides this is not a story, and the run ends at `abstain` with `status: "invalid-topic"`.
-- `{ "topic": "Tuvalu library budget", "date": "2026-09-08" }`: the planner accepts the topic, but the desk finds no coverage and returns `status: "no-coverage"` without writing anything.
+- `{ "topic": "my neighbour's dog" }`: Jev decides this is not a story, and the run ends at `abstain` with `status: "invalid-topic"`.
+- `{ "topic": "Tuvalu library budget", "date": "2026-09-08" }`: Jev accepts the topic, but the desk finds no coverage and returns `status: "no-coverage"` without writing anything.
 
 **4. Run an experiment.** Open **Datasets → Launch days → Run experiment**. Each item runs the full workflow, and `brief-correctness` checks the brief against a hand-written answer key. **Routing** is the cheap one to try first: its three non-subjects stop at the planner.
 
@@ -52,9 +53,10 @@ You can inspect every step's input, output and state, including the steps inside
 
 ```mermaid
 flowchart TD
-    A([topic, date]) --> plan
-    plan -->|is a story| desk
-    plan -->|not a story| abstain
+    A([topic, date]) --> isstory[is-story · Jev]
+    isstory -->|P(story) ≥ 0.5| plan
+    isstory -->|P(story) < 0.5| abstain
+    plan --> desk
     subgraph desk [newsroom-desk]
         research["research ×N angles<br/>(parallel foreach)"] --> edit
         edit -->|lineup not empty| write
@@ -66,16 +68,18 @@ flowchart TD
     out([report + sources, status])
 ```
 
-1. **Plan.** The planner decides whether a newsroom could report on this topic on that day. If it could, it splits the topic into 1–5 research angles, adding a new angle only when the topic has a genuinely distinct thread.
-2. **Research.** One researcher per angle runs in parallel. Each one searches the day's news with `exa-news-tool`, judges relevance from titles and highlights, and groups hits into stories. It returns article ids, not urls.
-3. **Edit.** The news editor sees every story from every angle. It merges stories that describe the same event and marks each one cover, brief or drop.
-4. **Combine.** Code resolves the editor's picks to articles, removes duplicates, and orders the cover stories by how many distinct outlets reported them. An empty lineup goes to `no-coverage`.
-5. **Write.** The reporter opens up to six articles in full with `read-article` and writes the brief with `[n]` citations. Code turns the citations into links and appends the sources.
+1. **Classify.** Jev, TypeSafe's evaluation model, answers one typed question about the topic: the probability that it is a real subject a newsroom could report on. It returns a probability rather than text, in well under a second. Below a 0.5 probability the run abstains.
+2. **Plan.** The planner splits the accepted topic into 1–5 research angles, adding a new angle only when the topic has a genuinely distinct thread.
+3. **Research.** One researcher per angle runs in parallel. Each one searches the day's news with `exa-news-tool`, judges relevance from titles and highlights, and groups hits into stories. It returns article ids, not urls.
+4. **Edit.** The news editor sees every story from every angle. It merges stories that describe the same event and marks each one cover, brief or drop.
+5. **Combine.** Code resolves the editor's picks to articles, removes duplicates, and orders the cover stories by how many distinct outlets reported them. An empty lineup goes to `no-coverage`.
+6. **Write.** The reporter opens up to six articles in full with `read-article` and writes the brief with `[n]` citations. Code turns the citations into links and appends the sources.
 
 | Agent | Role | Model |
 |---|---|---|
 | `editor-in-chief` | Chat front door. Turns a question into a topic, runs the workflow, relays the report or explains an abstain. | `gpt-6-luna` |
-| `planner` | Decides whether it is a story and splits it into angles. | `gpt-6-sol` |
+| `is-story` (classifier) | Is this a story? A typed yes/no probability. | `jev-latest` |
+| `planner` | Splits the accepted topic into angles. | `gpt-6-sol` |
 | `researcher` | Searches one angle and groups hits into stories. | `gpt-6-luna` |
 | `news-editor` | Merges duplicate stories and decides cover, brief or drop. | `gpt-6-luna` |
 | `reporter` | Reads the chosen articles and writes the cited brief. | `gpt-6-luna` |
@@ -93,13 +97,14 @@ Every route returns the same shape, `outputSchema` in `src/mastra/types.ts`:
 
 | Step | Role | What it does |
 |---|---|---|
-| `plan` | planner (agent) | Is this a story a newsroom could report on that day? Splits it into 1–5 research angles, only where the topic has genuinely distinct threads. |
+| `is-story` | classifier (Jev) | Sees `{ topic }` only. Answers `isStory` as a probability. The branch after it compares the probability to `STORY_THRESHOLD`. |
+| `plan` | planner (agent) | Splits the accepted topic into 1–5 research angles, only where the topic has genuinely distinct threads. |
 | `research` | researcher (agent + `exa-news-tool`) | One per angle, `foreach` with all angles in parallel. Searches the day's news, judges relevance from titles and highlights, groups hits into stories. Returns article ids only. |
 | `edit` | news-editor (agent) | Sees a flat story list (id, headline, angle, outlets, two highlights). Merges the same event found by different angles; decides cover / brief / drop. |
 | `combine` | code | Resolves groups to articles, dedupes by id, orders covers by distinct outlets, then briefs. If the editor returns no groups, researcher stories pass through (2+ outlets = cover). |
 | `write` | reporter (agent + `read-article`) | Opens up to six articles in full by id. One paragraph per cover, one bullet per brief, cites `[n]`. Code turns `[n]` into `[n](url)` and appends a Sources list. Live scorers are attached here. |
 | `no-coverage` | code | The lineup is empty. Returns `no-coverage` without a model call. |
-| `abstain` | code | The planner said it is not a story. Returns `invalid-topic` with the planner's reason. |
+| `abstain` | code | Jev said it is not a story. Returns `invalid-topic` with the probability. |
 | `merge-desk`, `merge` | code | Pass through whichever arm ran, keyed by arm id. There is one after each branch. |
 
 </details>

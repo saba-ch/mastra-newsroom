@@ -17,9 +17,11 @@ import { coverageScorer } from "./scorers/coverage";
 import { runSummariesRoute } from "./routes/run-summaries";
 import { statusScorer } from "./scorers/status";
 import { briefCorrectnessScorer } from "./scorers/brief-correctness";
+import { isStory } from "./classifier/is-story";
 
 export const mastra = new Mastra({
   agents: { editorInChief, planner, researcher, newsEditor, reporter },
+  classifiers: { isStory },
   tools: { exaNewsTool, readArticleTool },
   workflows: { newsReport, newsroomDesk },
   // statusScorer and briefCorrectnessScorer need ground truth: registered for experiments, never attached to a step.
