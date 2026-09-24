@@ -56,9 +56,9 @@ flowchart TD
     plan -->|is a story| desk
     plan -->|not a story| abstain
     subgraph desk [newsroom-desk]
-        research["research ×N angles<br/>(parallel foreach)"] --> edit --> combine
-        combine -->|lineup not empty| write
-        combine -->|lineup empty| nocov[no-coverage]
+        research["research ×N angles<br/>(parallel foreach)"] --> edit
+        edit -->|lineup not empty| write
+        edit -->|lineup empty| nocov[no-coverage]
     end
     write --> out
     nocov --> out
