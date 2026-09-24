@@ -36,5 +36,5 @@ One or two sentences on what comes next, with dates where the sources give them.
 
 Rules: present tense for the news. Digits, not words, for numbers. Every sentence ends with a citation [n] using the article number, e.g. [2] or [1][4]. No paragraph over three lines, no more than three bullets under a story, no nested bullets. Do not repeat the headline in the first sentence. Do not open with throat-clearing ("In a rapidly evolving..."). No hedging chains ("could potentially signal"): if a source is unsure, say who is unsure, once. No jokes, no emoji. Whole brief under 700 words.
 
-Use only the lineup. Never write a url and never invent a number that is not in the articles. No hedging like "recently" and no desk-speak like "the lineup" or "the researchers". 300-500 words, neutral tone.`,
+Use only the lineup. Never write a url and never invent a number that is not in the articles. No hedging like "recently" and no desk-speak like "the lineup" or "the researchers". Neutral tone.`,
 });

@@ -15,15 +15,12 @@ const REPORTER_MAX_STEPS = 8;
 // Researcher output lives in desk state: combine looks stories up by id, write puts it in Output.
 const deskStateSchema = z.object({ research: z.array(researchSchema).default([]) });
 
-// Scorers run after write returns, with the step's requestContext. write sets reportStatus there, so a
-// no-coverage run is skipped instead of scoring a vacuous 1. The filter cannot read the output itself.
-const onlyReports = { op: "eq", left: { path: "requestContext.reportStatus" }, right: { literal: "ok" } } as const;
-
 // A typed const rather than an inline object: createStep's overloads fail to resolve otherwise. No sampling = every run.
+// write only runs on a non-empty lineup (see the "any-coverage" branch), so no filter is needed here.
 const reportScorers: MastraScorers = {
-  citationFidelity: { scorer: citationFidelityScorer, filter: onlyReports },
-  researchRedundancy: { scorer: researchRedundancyScorer, filter: onlyReports },
-  coverage: { scorer: coverageScorer, filter: onlyReports },
+  citationFidelity: { scorer: citationFidelityScorer },
+  researchRedundancy: { scorer: researchRedundancyScorer },
+  coverage: { scorer: coverageScorer },
 };
 
 // ---- plan: Input -> Plan ----------------------------------------------------
@@ -149,12 +146,8 @@ const write = createStep({
   outputSchema,
   stateSchema: deskStateSchema,
   scorers: reportScorers,
-  execute: async ({ inputData: lineup, mastra, getInitData, requestContext, state: { research } }): Promise<Output> => {
+  execute: async ({ inputData: lineup, mastra, getInitData, state: { research } }): Promise<Output> => {
     const { topic, date } = getInitData<Plan>();
-    requestContext.set("reportStatus", lineup.length === 0 ? "no-coverage" : "ok");
-    if (lineup.length === 0) {
-      return { topic, date, status: "no-coverage", report: `No on-topic coverage found on ${date} for "${topic}".`, sources: [], lineup, research };
-    }
     const sources = [...new Map(lineup.flatMap((s) => s.articles).map((a) => [a.id, a])).values()];
     const number = new Map(sources.map((a, i) => [a.id, i + 1]));
     const prompt = lineup.map((story, i) => [
@@ -177,6 +170,30 @@ const write = createStep({
   },
 });
 
+// ---- noCoverage: Lineup (empty) -> Output ----------------------------------
+
+const noCoverage = createStep({
+  id: "no-coverage",
+  description: "The lineup is empty; return without writing.",
+  inputSchema: lineupSchema,
+  outputSchema,
+  stateSchema: deskStateSchema,
+  execute: async ({ inputData: lineup, getInitData, state: { research } }): Promise<Output> => {
+    const { topic, date } = getInitData<Plan>();
+    return { topic, date, status: "no-coverage", report: `No on-topic coverage found on ${date} for "${topic}".`, sources: [], lineup, research };
+  },
+});
+
+// ---- mergeDesk: whichever arm ran (branch output is keyed by step id) -------
+
+const mergeDesk = createStep({
+  id: "merge-desk",
+  description: "Pass through whichever arm produced the report.",
+  inputSchema: z.object({ [write.id]: outputSchema.optional(), [noCoverage.id]: outputSchema.optional() }),
+  outputSchema,
+  execute: async ({ inputData }) => outputSchema.parse(inputData[write.id] ?? inputData[noCoverage.id]),
+});
+
 // ---- the desk: Plan -> Output, one researcher per angle ---------------------
 
 export const newsroomDesk = createWorkflow({
@@ -190,7 +207,14 @@ export const newsroomDesk = createWorkflow({
   .foreach(research, { concurrency: RESEARCH_CONCURRENCY })
   .then(edit)
   .then(combine)
-  .then(write)
+  .branch(
+    [
+      [{ predicate: { op: "gt", left: { path: "inputData.length" }, right: { literal: 0 } } }, write],
+      [{ predicate: { op: "eq", left: { path: "inputData.length" }, right: { literal: 0 } } }, noCoverage],
+    ],
+    { id: "any-coverage", description: "Write it, or report no coverage." },
+  )
+  .then(mergeDesk)
   .commit();
 
 // ---- abstain: Plan -> Output (invalid topic) --------------------------------
@@ -205,11 +229,11 @@ const abstain = createStep({
   }),
 });
 
-// ---- merge: whichever branch ran (branch output is keyed by step id) --------
+// ---- merge: whichever arm ran (branch output is keyed by step id) -----------
 
 const merge = createStep({
   id: "merge",
-  description: "Pass through whichever branch produced the report.",
+  description: "Pass through whichever arm produced the report.",
   inputSchema: z.object({ [newsroomDesk.id]: outputSchema.optional(), [abstain.id]: outputSchema.optional() }),
   outputSchema,
   execute: async ({ inputData }) => outputSchema.parse(inputData[newsroomDesk.id] ?? inputData[abstain.id]),

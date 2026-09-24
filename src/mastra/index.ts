@@ -22,9 +22,9 @@ export const mastra = new Mastra({
   workflows: { newsReport, newsroomDesk },
   // statusScorer and briefCorrectnessScorer need ground truth: registered for experiments, never attached to a step.
   scorers: { citationFidelityScorer, researchRedundancyScorer, coverageScorer, statusScorer, briefCorrectnessScorer },
-  // One SQLite file for datasets, runs, scores and traces. DATABASE_URL is absolute so `npm run seed` and
-  // `mastra dev` open the same file (dev resolves relative paths under src/mastra/public).
-  storage: new LibSQLStore({ id: "libsql", url: process.env.DATABASE_URL ?? "file:./mastra.db" }),
+  // One SQLite file for datasets, runs, scores and traces. Relative to the process cwd: `mastra dev` runs the
+  // server from src/mastra/public, so that is where the file lives, and `npm run seed` runs from there too.
+  storage: new LibSQLStore({ id: "libsql", url: "file:./mastra.db" }),
   observability: new Observability({
     configs: { default: { serviceName: "mastra-newsroom", exporters: [new MastraStorageExporter()] } },
   }),

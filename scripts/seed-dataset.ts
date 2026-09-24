@@ -1,23 +1,31 @@
-import { mastra } from "../src/mastra";
+import { mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { Input, Output } from "../src/mastra/types";
+
+// `mastra dev` runs the server from src/mastra/public, so its `file:./mastra.db` lives there. Run from the same
+// place so Studio sees what this script writes. Stop `npm run dev` first: both open the same database files.
+const publicDir = fileURLToPath(new URL("../src/mastra/public/", import.meta.url));
+mkdirSync(publicDir, { recursive: true });
+process.chdir(publicDir);
+const { mastra } = await import("../src/mastra");
 
 // One dataset per question under test. Every item in a dataset has the same ground-truth shape,
 // so every scorer attached to the dataset applies to every item.
-// Stop `npm run dev` first: both processes open the same database files.
 
 // Does the planner route a topic correctly? Junk topics stop at the planner, so this one is cheap.
+// Every item is dated so a rerun searches the same day's news.
 const routing: { input: Input; groundTruth: { expectedStatus: Output["status"] } }[] = [
   // Real, busy beats: should report.
-  { input: { topic: "AI regulation" }, groundTruth: { expectedStatus: "ok" } },
-  { input: { topic: "Nvidia" }, groundTruth: { expectedStatus: "ok" } },
-  // Real subjects with no news on a given day: the desk should say so, not pad.
-  { input: { topic: "Tuvalu library budget" }, groundTruth: { expectedStatus: "no-coverage" } },
-  { input: { topic: "Faroe Islands ferry timetable" }, groundTruth: { expectedStatus: "no-coverage" } },
-  { input: { topic: "Antarctic postal service" }, groundTruth: { expectedStatus: "no-coverage" } },
+  { input: { topic: "AI regulation", date: "2026-09-10" }, groundTruth: { expectedStatus: "ok" } },
+  { input: { topic: "Nvidia", date: "2026-09-17" }, groundTruth: { expectedStatus: "ok" } },
+  // Real subjects with no news on the day (Exa returns only off-topic hits): the desk should say so, not pad.
+  { input: { topic: "Tuvalu library budget", date: "2026-09-08" }, groundTruth: { expectedStatus: "no-coverage" } },
+  { input: { topic: "Faroe Islands ferry timetable", date: "2026-09-14" }, groundTruth: { expectedStatus: "no-coverage" } },
+  { input: { topic: "Antarctic postal service", date: "2026-09-21" }, groundTruth: { expectedStatus: "no-coverage" } },
   // Not a news subject at all: the planner should abstain before any search.
-  { input: { topic: "asdf qwer zxcv" }, groundTruth: { expectedStatus: "invalid-topic" } },
-  { input: { topic: "my neighbour's dog" }, groundTruth: { expectedStatus: "invalid-topic" } },
-  { input: { topic: "lorem ipsum dolor sit amet" }, groundTruth: { expectedStatus: "invalid-topic" } },
+  { input: { topic: "asdf qwer zxcv", date: "2026-09-02" }, groundTruth: { expectedStatus: "invalid-topic" } },
+  { input: { topic: "my neighbour's dog", date: "2026-09-11" }, groundTruth: { expectedStatus: "invalid-topic" } },
+  { input: { topic: "lorem ipsum dolor sit amet", date: "2026-09-18" }, groundTruth: { expectedStatus: "invalid-topic" } },
 ];
 
 // On a day with a known big story, does the brief carry it? Topics are deliberately broad:

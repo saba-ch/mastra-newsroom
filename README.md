@@ -13,9 +13,9 @@ npm run dev             # Studio at http://localhost:4111, web UI at http://loca
 
 `npm run dev:mastra` starts Studio alone; `npm run dev:web` starts only the web UI against an already running `mastra dev`.
 
-`npm run seed` goes through the Mastra SDK (`mastra.datasets.create`). Set `DATABASE_URL` in `.env` to an absolute `file:` path so the script and `mastra dev` open the same SQLite file; `mastra dev` resolves a relative path under `src/mastra/public/`.
+`npm run seed` goes through the Mastra SDK (`mastra.datasets.create`). The store uses Mastra's default `file:./mastra.db`, which resolves against the process cwd. `mastra dev` runs the server from `src/mastra/public/`, so the database lives there (gitignored), and the seed script `chdir`s to the same directory before loading Mastra so both open one file.
 
-A story run takes 85-105 s and costs about $0.05-0.10 on `openai/gpt-6-luna`.
+A story run takes 85-105 s and costs about $0.05-0.10 with the models in `src/mastra/model.ts`.
 
 ## Where to click in Studio
 
@@ -45,11 +45,12 @@ Set `NEXT_PUBLIC_MASTRA_URL` in `web/.env` if Mastra is not on `http://localhost
 | `research` | researcher (agent + `exa-news-tool`) | One per angle, `foreach` with all angles in parallel. Searches the day's news, judges relevance from titles and highlights, groups hits into stories. Returns article ids only. |
 | `edit` | news-editor (agent) | Sees a flat story list (id, headline, angle, outlets, two highlights). Merges the same event found by different angles; decides cover / brief / drop. |
 | `combine` | code | Resolves groups to articles, dedupes by id, orders covers by distinct outlets, then briefs. If the editor returns no groups, researcher stories pass through (2+ outlets = cover). |
-| `write` | reporter (agent + `read-article`) | Opens up to six articles in full by id. One paragraph per cover, one bullet per brief, cites `[n]`. Code turns `[n]` into `[n](url)` and appends a Sources list. Empty lineup returns `no-coverage` without a model call. |
+| `write` | reporter (agent + `read-article`) | Opens up to six articles in full by id. One paragraph per cover, one bullet per brief, cites `[n]`. Code turns `[n]` into `[n](url)` and appends a Sources list. Scorers attached here. |
+| `no-coverage` | code | Lineup is empty. Returns `no-coverage` without a model call. |
 | `abstain` | code | Planner said it is not a story. Returns `invalid-topic` with the planner's reason. |
-| `merge` | code | Passes through whichever arm ran. |
+| `merge` | code | Passes through whichever arm ran. One after each branch. |
 
-All five agents use `openai/gpt-6-luna` (`src/mastra/model.ts`).
+The planner uses `openai/gpt-6-sol`: its output shapes every later step and is short, so the stronger model is cheap there. The other four agents use `openai/gpt-6-luna` (`src/mastra/model.ts`).
 
 ## Graph
 
@@ -62,7 +63,10 @@ news-report
         │                      foreach research   (all angles in parallel)
         │                      edit                (setState: research)
         │                      combine             (reads state)
-        │                      write               (reads state, scorers attached)
+        │                       └─ branch "any-coverage"
+        │                            ├─ lineup.length > 0 ─> write        (reads state, scorers attached)
+        │                            └─ lineup.length = 0 ─> no-coverage  (reads state)
+        │                      merge-desk          (keyed by arm id)
         └─ isStory falsy ──> abstain
   merge  (keyed by arm id, outputSchema.parse)
 ```
@@ -81,7 +85,7 @@ Every route returns the same shape (`outputSchema` in `src/mastra/types.ts`):
 
 All scorers are typed `createScorer<unknown, Output>` and registered on the Mastra instance so datasets and experiments can name them by id. Which scorer runs where follows one rule: if the output alone can answer its question, it runs live on `write` for every story run; if it needs an answer key (`groundTruth`), it runs only in experiments on a dataset whose items carry that key.
 
-Live, on every story run that produced a report. A no-coverage run has nothing to cite, dedupe or cover, and would score a vacuous 1. `write` sets `reportStatus` in the request context and each scorer entry carries `filter: requestContext.reportStatus == "ok"`, so those runs are not scored. Step scorers run after `execute`, with the step's request context, which is what makes this work: a filter cannot read the output. Experiments ignore the filter, which is why `brief-correctness`, not these, judges an empty launch-day brief.
+Live, on every story run that produced a report. A no-coverage run has nothing to cite, dedupe or cover, and would score a vacuous 1, so the desk branches after `combine`: an empty lineup goes to `no-coverage` and never reaches `write`, where the scorers are attached. No filter is needed. `brief-correctness`, not these, judges an empty launch-day brief in experiments.
 
 | Scorer | Reads | Score | Baseline |
 |---|---|---|---|
@@ -102,7 +106,7 @@ One dataset per question under test. `startExperiment` always runs every item, s
 
 | Dataset | Question | Items | groundTruth | Scorers |
 |---|---|---|---|---|
-| `routing` | Does each topic take the right route? | 8: 2 busy beats (`ok`), 3 real subjects with no news (`no-coverage`), 3 non-subjects (`invalid-topic`). Non-subjects stop at the planner, so it is cheap. | `{ expectedStatus }` | `status` |
+| `routing` | Does each topic take the right route? | 8: 2 busy beats (`ok`), 3 real subjects with no news (`no-coverage`), 3 non-subjects (`invalid-topic`). Every item has a fixed date in September 2026, so reruns search the same news. Non-subjects stop at the planner, so it is cheap. | `{ expectedStatus }` | `status` |
 | `launch-days` | On a day with a known big story, does the brief carry it? | 5 broad topics on launch days: `phone` on 2026-09-09 (iPhone Duo), `new AI models` on 09-16 (TypeSafe's Jev) and 09-03 (GPT-6 Astra), `smart glasses` on 09-24 (Meta Connect), `Android` on 09-01 (September Android Drop). | `{ must, mustNot }` | `brief-correctness` + the three live scorers |
 
 Launch-day dates are the UTC day most coverage is published, checked against Exa: a US afternoon or evening announcement (Meta's 4pm PT keynote, TypeSafe's Sep 15 launch) is dated the next day. The broad topics are deliberate: `new AI models` on Jev's day does not surface Jev in the top ten search results, so the planner has to find it.
@@ -123,7 +127,7 @@ Launch-day dates are the UTC day most coverage is published, checked against Exa
 
 - No auth: this is a local demo bound to localhost.
 - The date defaults to today in UTC. Early in the UTC day there is little news yet.
-- Relevance and grouping are model judgement from titles and highlights. The "no-coverage" dataset item can turn `ok` if Exa returns something loosely related.
+- Relevance and grouping are model judgement from titles and highlights. A `no-coverage` routing item can turn `ok` if the researcher accepts a loosely related hit. On their pinned dates Exa returns only off-topic articles for them.
 - Citation fidelity checks that a link points at a fetched source, not that the source supports the sentence.
 - Research redundancy is still 0.6-0.89 on broad topics: the planner's angles overlap.
 - Reseeding deletes and recreates both datasets, including their past experiments.
