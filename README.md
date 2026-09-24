@@ -21,7 +21,7 @@ A story run takes 85-105 s and costs about $0.05-0.10 on `openai/gpt-6-luna`.
 
 - **Agents → Editor-in-chief**: chat, e.g. "what's happening with AI regulation?". It runs the `news-report` workflow as a tool and relays the report. The other four agents can be chatted with directly too.
 - **Workflows → news-report**: run with `{ "topic": "AI regulation" }` (optional `"date": "YYYY-MM-DD"`). Every step's input, output and state is inspectable, including inside the nested `newsroom-desk`.
-- **Scorers**: three scorers run live on the `write` step of every story run and show up here per run.
+- **Scorers**: three scorers run live on the `write` step of every story run that produced a report and show up here per run.
 - **Datasets → Launch days / Routing → Run experiment**: target the `newsReport` workflow. Each dataset carries its own scorer list.
 - **Observability**: agent calls, tool calls and workflow spans for every run.
 
@@ -81,7 +81,7 @@ Every route returns the same shape (`outputSchema` in `src/mastra/types.ts`):
 
 All scorers are typed `createScorer<unknown, Output>` and registered on the Mastra instance so datasets and experiments can name them by id. Which scorer runs where follows one rule: if the output alone can answer its question, it runs live on `write` for every story run; if it needs an answer key (`groundTruth`), it runs only in experiments on a dataset whose items carry that key.
 
-Live, on every story run:
+Live, on every story run that produced a report. A no-coverage run has nothing to cite, dedupe or cover, and would score a vacuous 1. `write` sets `reportStatus` in the request context and each scorer entry carries `filter: requestContext.reportStatus == "ok"`, so those runs are not scored. Step scorers run after `execute`, with the step's request context, which is what makes this work: a filter cannot read the output. Experiments ignore the filter, which is why `brief-correctness`, not these, judges an empty launch-day brief.
 
 | Scorer | Reads | Score | Baseline |
 |---|---|---|---|

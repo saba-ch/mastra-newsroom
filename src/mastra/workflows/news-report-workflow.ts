@@ -15,11 +15,15 @@ const REPORTER_MAX_STEPS = 8;
 // Researcher output lives in desk state: combine looks stories up by id, write puts it in Output.
 const deskStateSchema = z.object({ research: z.array(researchSchema).default([]) });
 
+// Scorers run after write returns, with the step's requestContext. write sets reportStatus there, so a
+// no-coverage run is skipped instead of scoring a vacuous 1. The filter cannot read the output itself.
+const onlyReports = { op: "eq", left: { path: "requestContext.reportStatus" }, right: { literal: "ok" } } as const;
+
 // A typed const rather than an inline object: createStep's overloads fail to resolve otherwise. No sampling = every run.
 const reportScorers: MastraScorers = {
-  citationFidelity: { scorer: citationFidelityScorer },
-  researchRedundancy: { scorer: researchRedundancyScorer },
-  coverage: { scorer: coverageScorer },
+  citationFidelity: { scorer: citationFidelityScorer, filter: onlyReports },
+  researchRedundancy: { scorer: researchRedundancyScorer, filter: onlyReports },
+  coverage: { scorer: coverageScorer, filter: onlyReports },
 };
 
 // ---- plan: Input -> Plan ----------------------------------------------------
@@ -145,8 +149,9 @@ const write = createStep({
   outputSchema,
   stateSchema: deskStateSchema,
   scorers: reportScorers,
-  execute: async ({ inputData: lineup, mastra, getInitData, state: { research } }): Promise<Output> => {
+  execute: async ({ inputData: lineup, mastra, getInitData, requestContext, state: { research } }): Promise<Output> => {
     const { topic, date } = getInitData<Plan>();
+    requestContext.set("reportStatus", lineup.length === 0 ? "no-coverage" : "ok");
     if (lineup.length === 0) {
       return { topic, date, status: "no-coverage", report: `No on-topic coverage found on ${date} for "${topic}".`, sources: [], lineup, research };
     }
